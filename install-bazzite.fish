@@ -94,55 +94,44 @@ if ! set -q _flag_noconfirm
 end
 
 function install_caelestia_shell
-    set_color green; echo "🚀 Memulai Setup Caelestia Shell via Distrobox..."; set_color normal
+    set_color green; echo "🚀 Memulai Setup Caelestia Shell (via AUR)..."; set_color normal
 
-    # 1. Cek apakah Distrobox 'caelestia-box' sudah ada, jika belum buat baru
+    # 1. Buat container Arch Linux (jika belum ada)
     if not distrobox list | grep -q "caelestia-box"
-        echo "📦 Membuat container Arch Linux untuk build environment..."
-        # Kita pakai Arch karena dokumentasi Caelestia aslinya berbasis Arch
+        echo "📦 Membuat container Arch..."
         distrobox create --name caelestia-box --image archlinux:latest --yes
     end
 
-    # 2. Jalankan perintah build DI DALAM container
-    echo "🔨 Menginstall dependencies dan compiling..."
-    
+    # 2. Masuk ke container dan install via YAY (AUR Helper)
+    echo "⬇️ Menginstall Caelestia Shell dari AUR..."
+
     distrobox enter caelestia-box -- sh -c '
-        # A. Install Dependencies (Arch pacman)
-        # --noconfirm agar tidak tanya yes/no
-        sudo pacman -Syu --noconfirm base-devel git cmake ninja \
-            qt6-base qt6-declarative qt6-svg qt6-5compat \
-            pipewire pipewire-jack libqalculate unzip wget
+        # A. Update & Install tool dasar
+        sudo pacman -Syu --noconfirm base-devel git
 
-        # B. Persiapan Folder
-        mkdir -p ~/Sources
-        cd ~/Sources
-        rm -rf shell # Hapus sisa build lama jika ada
+        # B. Install YAY (AUR Helper) jika belum ada
+        if ! command -v yay &> /dev/null; then
+            git clone https://aur.archlinux.org/yay-bin.git
+            cd yay-bin
+            makepkg -si --noconfirm
+            cd ..
+            rm -rf yay-bin
+        fi
 
-        # C. Clone Repository
-        echo "📥 Cloning Caelestia Shell..."
-        git clone https://github.com/caelestia-dots/shell.git
-        cd shell
+        # C. Install Caelestia Shell (Otomatis install semua dependency!)
+        yay -S --noconfirm caelestia-shell
 
-        # D. Fix Versioning (Masalah git describe tadi)
-        git config --global user.email "builder@localhost"
-        git config --global user.name "Builder"
-        git tag -a v1.0.0 -m "Release 1.0.0" || true
+        # D. Export binary agar bisa dipakai di Host (Bazzite)
+        distrobox-export --bin /usr/bin/caelestia
 
-        # E. Build & Install
-        # Kita install ke $HOME/.local agar binary-nya muncul di Host juga
-        echo "⚙️ Compiling..."
-        cmake -B build -G Ninja -DCMAKE_INSTALL_PREFIX=$HOME/.local -DCMAKE_BUILD_TYPE=Release
-        cmake --build build
-        cmake --install build
-        
-        echo "✅ Build Selesai!"
+        # (Opsional) Export service systemd user jika ada
+        # distrobox-export --service caelestia-shell
     '
 
-    set_color green; echo "🎉 Caelestia Shell berhasil diinstall!"; set_color normal
-    echo "Silakan logout dan login kembali, atau jalankan langsung."
+    set_color green; echo "✅ Caelestia Shell berhasil diinstall!"; set_color normal
+    echo "Coba jalankan perintah: caelestia shell"
 end
 
-# --- EKSEKUSI FUNGSI ---
 install_caelestia_shell
 
 # Cd into dir
@@ -250,7 +239,7 @@ end
 # Jika user menambahkan flag --vscode, kita hanya symlink config.
 if set -q _flag_vscode
     log 'Configuring VS Code (RPM version)...'
-    
+
     # Tentukan varian (Code atau Codium)
     # Di Bazzite biasanya 'code' (official) atau 'codium' tergantung image Anda.
     if type -q code
@@ -268,17 +257,17 @@ if set -q _flag_vscode
     if test "$prog" != 'skip'
         set -l target_dir "$config/$folder/User"
         mkdir -p $target_dir
-        
+
         # Symlink Settings
         if confirm-overwrite "$target_dir/settings.json"
             ln -s (realpath vscode/settings.json) "$target_dir/settings.json"
         end
-        
+
         # Symlink Keybindings
         if confirm-overwrite "$target_dir/keybindings.json"
             ln -s (realpath vscode/keybindings.json) "$target_dir/keybindings.json"
         end
-        
+
         log "VS Code configured. Install extensions manually or via CLI."
     end
 end
@@ -287,13 +276,13 @@ end
 # Kita ganti logika 'discord + patch' menjadi 'vesktop config'.
 if set -q _flag_discord
     log 'Configuring Discord (Vesktop Flatpak)...'
-    
+
     # Path config Vesktop (Vencord)
     set -l vesktop_conf "$HOME/.var/app/dev.vencord.Vesktop/config/vesktop"
-    
+
     if test -d (dirname $vesktop_conf)
         mkdir -p $vesktop_conf
-        
+
         # Jika Anda punya themes khusus untuk Vencord di repo dotfiles
         # Contoh: ln -s (realpath discord/themes) $vesktop_conf/themes
         log 'Vesktop folder detected. You can link your Vencord themes here.'
@@ -305,7 +294,7 @@ end
 # 3. SPOTIFY (Spicetify on Flatpak)
 if set -q _flag_spotify
     log 'Configuring Spotify (Spicetify for Flatpak)...'
-    
+
     # Cek apakah Spotify Flatpak terinstall
     if not flatpak list | grep -q com.spotify.Client
         log 'Spotify Flatpak not found. Skipping...'
@@ -328,19 +317,19 @@ if set -q _flag_spotify
         # Setup path spicetify untuk flatpak
         spicetify config spotify_path $HOME/.var/app/com.spotify.Client/config/spotify
         spicetify config prefs_path $HOME/.var/app/com.spotify.Client/config/spotify/prefs
-        
+
         # Symlink Tema Caelestia ke folder themes Spicetify
         set -l spice_themes "$HOME/.config/spicetify/Themes" # Lokasi default spicetify-cli
         mkdir -p $spice_themes
-        
+
         if test -d "spicetify/Themes/caelestia"
             rm -rf "$spice_themes/caelestia"
             ln -s (realpath spicetify/Themes/caelestia) "$spice_themes/caelestia"
-            
+
             spicetify config current_theme caelestia
             spicetify config color_scheme caelestia
             spicetify config inject_css 1 replace_colors 1 overwrite_assets 1
-            
+
             # Backup & Apply
             spicetify backup apply
         else
@@ -352,20 +341,20 @@ end
 # 4. ZEN BROWSER (Flatpak)
 if set -q _flag_zen
     log 'Configuring Zen Browser (Flatpak)...'
-    
+
     # Cari path random profile Zen Flatpak
     # Lokasi: ~/.var/app/app.zen_browser.zen/.zen/[random].default
     set -l zen_flatpak_root "$HOME/.var/app/app.zen_browser.zen/.zen"
-    
+
     if test -d $zen_flatpak_root
         # Ambil folder profile pertama yang ditemukan
         set -l profile_dir (find $zen_flatpak_root -maxdepth 1 -type d -name "*.default*" | head -n 1)
-        
+
         if test -n "$profile_dir"
             log "Found Zen profile: $profile_dir"
             set -l chrome_dir "$profile_dir/chrome"
             mkdir -p $chrome_dir
-            
+
             # Symlink userChrome.css
             if confirm-overwrite "$chrome_dir/userChrome.css"
                 # Asumsi file ada di folder 'zen' repo Anda
@@ -388,7 +377,7 @@ log 'Finalizing setup...'
 # Pastikan caelestia-cli terinstall (seharusnya sudah ada di Image Bazzite)
 if type -q caelestia
     log 'Applying Caelestia theme (shadotheme)...'
-    
+
     # Cek apakah scheme json sudah ada, jika tidak generate baru
     if ! test -f $state/caelestia/scheme.json
         caelestia scheme set -n shadotheme
@@ -396,7 +385,7 @@ if type -q caelestia
         # Force update agar sinkron
         caelestia scheme set -n shadotheme --update
     end
-    
+
     # Reload hyprland jika sedang jalan
     if pidof Hyprland > /dev/null
          hyprctl reload
