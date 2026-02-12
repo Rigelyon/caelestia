@@ -93,6 +93,58 @@ if ! set -q _flag_noconfirm
     end
 end
 
+function install_caelestia_shell
+    set_color green; echo "🚀 Memulai Setup Caelestia Shell via Distrobox..."; set_color normal
+
+    # 1. Cek apakah Distrobox 'caelestia-box' sudah ada, jika belum buat baru
+    if not distrobox list | grep -q "caelestia-box"
+        echo "📦 Membuat container Arch Linux untuk build environment..."
+        # Kita pakai Arch karena dokumentasi Caelestia aslinya berbasis Arch
+        distrobox create --name caelestia-box --image archlinux:latest --yes
+    end
+
+    # 2. Jalankan perintah build DI DALAM container
+    echo "🔨 Menginstall dependencies dan compiling..."
+    
+    distrobox enter caelestia-box -- sh -c '
+        # A. Install Dependencies (Arch pacman)
+        # --noconfirm agar tidak tanya yes/no
+        sudo pacman -Syu --noconfirm base-devel git cmake ninja \
+            qt6-base qt6-declarative qt6-svg qt6-5compat \
+            pipewire pipewire-jack libqalculate unzip wget
+
+        # B. Persiapan Folder
+        mkdir -p ~/Sources
+        cd ~/Sources
+        rm -rf shell # Hapus sisa build lama jika ada
+
+        # C. Clone Repository
+        echo "📥 Cloning Caelestia Shell..."
+        git clone https://github.com/caelestia-dots/shell.git
+        cd shell
+
+        # D. Fix Versioning (Masalah git describe tadi)
+        git config --global user.email "builder@localhost"
+        git config --global user.name "Builder"
+        git tag -a v1.0.0 -m "Release 1.0.0" || true
+
+        # E. Build & Install
+        # Kita install ke $HOME/.local agar binary-nya muncul di Host juga
+        echo "⚙️ Compiling..."
+        cmake -B build -G Ninja -DCMAKE_INSTALL_PREFIX=$HOME/.local -DCMAKE_BUILD_TYPE=Release
+        cmake --build build
+        cmake --install build
+        
+        echo "✅ Build Selesai!"
+    '
+
+    set_color green; echo "🎉 Caelestia Shell berhasil diinstall!"; set_color normal
+    echo "Silakan logout dan login kembali, atau jalankan langsung."
+end
+
+# --- EKSEKUSI FUNGSI ---
+install_caelestia_shell
+
 # Cd into dir
 cd (dirname (status filename)) || exit 1
 
